@@ -236,15 +236,5 @@ because the API also serves the single-page UI.
 
 ---
 
-## 6. Demo video checklist (what to record)
 
-1. Show `/health` and the running stack (prove it's local).
-2. Upload a **Bangla** scanned PDF; show the OCR running **locally** in the logs
-   and the upload response (chunks indexed, detected language, OCR engine).
-3. Upload an English and a mixed doc with different `doc_type` / `doc_date`.
-4. Run a natural-language query **with no filter** → see passages + answer.
-5. Run the **same query with a strict filter** (e.g. `language=ben` + a date
-   range) → show that out-of-filter documents disappear from results.
-6. Ask a Bangla question and show the answer comes back **in Bangla** with the
-   source filename cited.
 ```
