@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Local OCR + RAG — Bangla/English</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --border:#2a2f3a;
+    --text:#e6e8ec; --muted:#9aa3b2; --accent:#5b8cff; --accent2:#3ad29f;
+    --danger:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Hind Siliguri",system-ui,Segoe UI,Roboto,sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.5}
+  header{padding:20px 24px;border-bottom:1px solid var(--border);
+    display:flex;align-items:baseline;gap:12px}
+  header h1{font-size:18px;margin:0;font-weight:650}
+  header span{color:var(--muted);font-size:13px}
+  .wrap{max-width:1080px;margin:0 auto;padding:24px;display:grid;
+    grid-template-columns:360px 1fr;gap:24px}
+  .card{background:var(--panel);border:1px solid var(--border);
+    border-radius:14px;padding:18px}
+  .card h2{font-size:14px;margin:0 0 14px;color:var(--muted);
+    text-transform:uppercase;letter-spacing:.06em}
+  label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+  input,select,textarea{width:100%;background:var(--panel2);color:var(--text);
+    border:1px solid var(--border);border-radius:9px;padding:9px 11px;font-size:14px}
+  textarea{resize:vertical;min-height:70px}
+  button{cursor:pointer;border:none;border-radius:9px;padding:10px 14px;
+    font-size:14px;font-weight:600;color:#0b0d11;background:var(--accent);margin-top:14px}
+  button.ghost{background:transparent;color:var(--accent);border:1px solid var(--border)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .answer{white-space:pre-wrap;background:var(--panel2);border:1px solid var(--border);
+    border-radius:10px;padding:14px;margin-top:10px;min-height:60px}
+  .chunk{border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:10px;
+    background:var(--panel2)}
+  .chunk .meta{font-size:12px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+  .pill{background:#262b36;border-radius:999px;padding:2px 9px;font-size:11px}
+  .score{color:var(--accent2)}
+  .docitem{font-size:13px;display:flex;justify-content:space-between;
+    padding:7px 0;border-bottom:1px dashed var(--border)}
+  .muted{color:var(--muted);font-size:12px}
+  .status{font-size:12px;margin-top:8px;min-height:16px}
+  .ok{color:var(--accent2)} .err{color:var(--danger)}
+  @media(max-width:860px){.wrap{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Local OCR + Dynamic RAG</h1>
+  <span>Bangla / English · fully local · hybrid search</span>
+</header>
+
+<div class="wrap">
+
+  <div>
+    <div class="card">
+      <h2>1 · Upload document</h2>
+      <input type="file" id="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp" />
+      <div class="row">
+        <div>
+          <label>Document type</label>
+          <input id="docType" placeholder="invoice / notice / report" value="general" />
+        </div>
+        <div>
+          <label>Document date</label>
+          <input id="docDate" type="date" />
+        </div>
+      </div>
+      <label>Language override (optional)</label>
+      <select id="langOverride">
+        <option value="">auto-detect</option>
+        <option value="ben">ben</option>
+        <option value="eng">eng</option>
+        <option value="mixed">mixed</option>
+      </select>
+      <button id="uploadBtn">Ingest (OCR → embed → index)</button>
+      <div class="status" id="uploadStatus"></div>
+    </div>
+
+    <div class="card" style="margin-top:20px">
+      <h2>Indexed library</h2>
+      <div id="docList"><span class="muted">No documents yet.</span></div>
+      <button class="ghost" id="refreshBtn">Refresh</button>
+    </div>
+  </div>
+
+  
+  <div class="card">
+    <h2>2 · Ask a question (hybrid RAG)</h2>
+    <textarea id="query" placeholder="যেমন: এই নোটিশে শেষ তারিখ কবে? / What is the invoice total?"></textarea>
+
+    <h2 style="margin-top:16px">Strict manual filters</h2>
+    <div class="row">
+      <div>
+        <label>Language</label>
+        <select id="fLang">
+          <option value="">any</option>
+          <option value="ben">ben</option>
+          <option value="eng">eng</option>
+          <option value="mixed">mixed</option>
+        </select>
+      </div>
+      <div>
+        <label>Doc type</label>
+        <input id="fType" placeholder="any" />
+      </div>
+    </div>
+    <div class="row">
+      <div><label>Date from</label><input id="fFrom" type="date" /></div>
+      <div><label>Date to</label><input id="fTo" type="date" /></div>
+    </div>
+    <button id="searchBtn">Search + Answer</button>
+    <div class="status" id="searchStatus"></div>
+
+    <h2 style="margin-top:18px">Answer</h2>
+    <div class="answer" id="answer"><span class="muted">Answer will appear here.</span></div>
+
+    <h2 style="margin-top:18px">Retrieved passages</h2>
+    <div id="chunks"></div>
+  </div>
+</div>
+
+<script>
+const API = ""; 
+const $ = id => document.getElementById(id);
+
+async function refreshDocs(){
+  try{
+    const r = await fetch(`${API}/documents`);
+    const docs = await r.json();
+    if(!docs.length){ $("docList").innerHTML = '<span class="muted">No documents yet.</span>'; return; }
+    $("docList").innerHTML = docs.map(d => `
+      <div class="docitem">
+        <span>${d.filename}<br><span class="muted">${d.language} · ${d.doc_type} · ${d.doc_date||'no date'} · ${d.chunks} chunks</span></span>
+        <button class="ghost" style="margin:0;padding:4px 8px" onclick="delDoc('${d.document_id}')">✕</button>
+      </div>`).join("");
+  }catch(e){ $("docList").innerHTML = `<span class="err">${e}</span>`; }
+}
+async function delDoc(id){ await fetch(`${API}/documents/${id}`,{method:"DELETE"}); refreshDocs(); }
+
+$("uploadBtn").onclick = async () => {
+  const file = $("file").files[0];
+  if(!file){ $("uploadStatus").innerHTML = '<span class="err">Pick a file first.</span>'; return; }
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("doc_type", $("docType").value || "general");
+  if($("docDate").value) fd.append("doc_date", $("docDate").value);
+  if($("langOverride").value) fd.append("language_override", $("langOverride").value);
+  $("uploadBtn").disabled = true;
+  $("uploadStatus").innerHTML = "Running OCR locally… this can take a moment.";
+  try{
+    const r = await fetch(`${API}/documents/upload`, {method:"POST", body:fd});
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.detail || "upload failed");
+    $("uploadStatus").innerHTML = `<span class="ok">Indexed ✓ ${j.chunks_indexed} chunks · ${j.pages} pages · lang=${j.language} · OCR=${j.ocr_engine}</span>`;
+    refreshDocs();
+  }catch(e){ $("uploadStatus").innerHTML = `<span class="err">${e}</span>`; }
+  finally{ $("uploadBtn").disabled = false; }
+};
+
+$("searchBtn").onclick = async () => {
+  const query = $("query").value.trim();
+  if(!query){ $("searchStatus").innerHTML = '<span class="err">Type a question.</span>'; return; }
+  const filters = {};
+  if($("fLang").value) filters.language = $("fLang").value;
+  if($("fType").value) filters.doc_type = $("fType").value;
+  if($("fFrom").value) filters.date_from = $("fFrom").value;
+  if($("fTo").value) filters.date_to = $("fTo").value;
+  $("searchBtn").disabled = true;
+  $("searchStatus").innerHTML = "Retrieving + generating…";
+  $("answer").innerHTML = '<span class="muted">…</span>';
+  $("chunks").innerHTML = "";
+  try{
+    const r = await fetch(`${API}/search`, {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({query, filters, generate_answer:true})
+    });
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.detail || "search failed");
+    $("answer").textContent = j.answer || "(no answer)";
+    $("chunks").innerHTML = j.chunks.map(c => `
+      <div class="chunk">
+        <div class="meta">
+          <span class="pill">${c.filename}</span>
+          <span class="pill">p.${c.page ?? '-'}</span>
+          <span class="pill">${c.language}</span>
+          <span class="pill">${c.doc_type}</span>
+          <span class="pill">${c.doc_date || 'no date'}</span>
+          <span class="pill score">score ${c.score}</span>
+        </div>
+        <div>${c.text.replace(/</g,"&lt;")}</div>
+      </div>`).join("") || '<span class="muted">No passages matched the filters.</span>';
+    $("searchStatus").innerHTML = `<span class="ok">${j.chunks.length} passages</span>`;
+  }catch(e){ $("searchStatus").innerHTML = `<span class="err">${e}</span>`; }
+  finally{ $("searchBtn").disabled = false; }
+};
+
+$("refreshBtn").onclick = refreshDocs;
+refreshDocs();
+</script>
+</body>
+</html>

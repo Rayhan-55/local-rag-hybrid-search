@@ -1,0 +1,20 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+pydantic==2.10.4
+pydantic-settings==2.7.1
+httpx==0.28.1
+
+# OCR
+pytesseract==0.3.13
+PyMuPDF==1.25.1
+opencv-python-headless==4.10.0.84
+Pillow==11.1.0
+numpy==2.2.1
+
+# Embeddings + vector store
+sentence-transformers==3.3.1
+chromadb==1.4.1
+
+# Optional, only if OCR_ENGINE=surya:
+# surya-ocr==0.8.3
